@@ -20,10 +20,15 @@ export default function App(){
    async function load(){
      setDataLoading(true);setError('');
      try{
+       if(session?.sessionExpiresAt && Date.parse(session.sessionExpiresAt)<=Date.now()) throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
        const headers={Authorization:`Patient ${session!.sessionToken}`};
        const [meRes,recordsRes]=await Promise.all([fetch('/api/patient-access/me',{headers}),fetch('/api/patient-access/health-records',{headers})]);
        const me=await meRes.json().catch(()=>null); const hr=await recordsRes.json().catch(()=>null);
-       if(meRes.status===401||meRes.status===403||recordsRes.status===401||recordsRes.status===403)throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+       if(meRes.status===401||meRes.status===403||recordsRes.status===401||recordsRes.status===403){
+         sessionStorage.removeItem('vhv_patient_access');
+         if(!cancelled){setSession(null);setPatient(null);setRecords([]);setPin('');setToken('');setView('home');setError('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');}
+         return;
+       }
        if(!meRes.ok||!me?.success)throw new Error(me?.error||'ไม่สามารถโหลดข้อมูลผู้รับบริการได้');
        if(!recordsRes.ok||!hr?.success)throw new Error(hr?.error||'ไม่สามารถโหลดประวัติสุขภาพได้');
        if(!cancelled){setPatient(me.patient||null);setRecords(Array.isArray(hr.records)?hr.records:[]);}
