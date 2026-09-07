@@ -1,0 +1,6 @@
+{
+  "name": "อสม. สมาร์ทเฮลท์ ชุมชน",
+  "description": "ระบบสารสนเทศบันทึกสัญญาณชีพ ตรวจสุขภาพ และบริหารจัดการข้อมูลประชาชนสำหรับ อสม. ชุมชน",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

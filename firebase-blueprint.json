@@ -1,0 +1,113 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile for authenticated VHV health workers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User UID" },
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email", "description": "Email address" },
+        "avatar": { "type": "string", "description": "Avatar image URL" },
+        "provider": { "type": "string", "description": "Auth provider (google, demo, guest)" },
+        "vhvCode": { "type": "string", "description": "VHV ID code" },
+        "role": { "type": "string", "enum": ["vhv", "admin", "staff"], "description": "User role" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp" }
+      },
+      "required": ["id", "name", "email"]
+    },
+    "Citizen": {
+      "title": "Citizen",
+      "description": "Resident profile in the VHV care area",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Citizen unique ID" },
+        "prefix": { "type": "string", "description": "Name prefix (นาย, นาง, นางสาว)" },
+        "firstName": { "type": "string", "description": "First name" },
+        "lastName": { "type": "string", "description": "Last name" },
+        "idCard": { "type": "string", "description": "13-digit National ID card number" },
+        "gender": { "type": "string", "enum": ["ชาย", "หญิง", "อื่นๆ"], "description": "Gender" },
+        "age": { "type": "number", "description": "Age in years" },
+        "birthDate": { "type": "string", "description": "Date of birth" },
+        "phone": { "type": "string", "description": "Phone number" },
+        "houseNo": { "type": "string", "description": "House number" },
+        "moo": { "type": "string", "description": "Village Moo" },
+        "villageName": { "type": "string", "description": "Village name" },
+        "healthRight": { "type": "string", "description": "Healthcare coverage right" },
+        "chronicDiseases": { "type": "string", "description": "Chronic disease tags" },
+        "allergies": { "type": "string", "description": "Drug or food allergies" },
+        "emergencyContact": { "type": "string", "description": "Emergency contact name" },
+        "emergencyPhone": { "type": "string", "description": "Emergency contact phone" },
+        "notes": { "type": "string", "description": "Additional notes" },
+        "avatarColor": { "type": "string", "description": "Hex avatar background color" },
+        "createdAt": { "type": "string", "description": "Creation date" },
+        "createdBy": { "type": "string", "description": "User UID who registered citizen" }
+      },
+      "required": ["id", "firstName", "lastName", "houseNo", "moo"]
+    },
+    "HealthRecord": {
+      "title": "HealthRecord",
+      "description": "Clinical screening measurement record collected in the field",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Health record unique ID" },
+        "citizenId": { "type": "string", "description": "Referenced citizen ID" },
+        "citizenName": { "type": "string", "description": "Citizen full name snapshot" },
+        "citizenAge": { "type": "number", "description": "Citizen age at time of checkup" },
+        "gender": { "type": "string", "description": "Gender" },
+        "houseNo": { "type": "string", "description": "House number" },
+        "moo": { "type": "string", "description": "Moo" },
+        "date": { "type": "string", "format": "date", "description": "Screening date (YYYY-MM-DD)" },
+        "time": { "type": "string", "description": "Screening time (HH:mm)" },
+        "systolic": { "type": "number", "description": "Systolic Blood Pressure (SYS mmHg)" },
+        "diastolic": { "type": "number", "description": "Diastolic Blood Pressure (DIA mmHg)" },
+        "pulse": { "type": "number", "description": "Pulse rate (bpm)" },
+        "waist": { "type": "number", "description": "Waist circumference" },
+        "waistUnit": { "type": "string", "enum": ["cm", "inch"], "description": "Waist measurement unit" },
+        "bloodSugar": { "type": "number", "description": "Blood glucose level (mg/dL)" },
+        "bloodSugarType": { "type": "string", "enum": ["FBS", "Random"], "description": "Blood sugar test type" },
+        "weight": { "type": "number", "description": "Weight in kg" },
+        "height": { "type": "number", "description": "Height in cm" },
+        "bmi": { "type": "number", "description": "Calculated BMI" },
+        "bmiCategory": { "type": "string", "description": "BMI category label" },
+        "temperature": { "type": "number", "description": "Body temperature in Celsius" },
+        "spO2": { "type": "number", "description": "Blood oxygen saturation percentage" },
+        "assessment": { "type": "string", "enum": ["normal", "watch", "high_risk"], "description": "Risk assessment tier" },
+        "notes": { "type": "string", "description": "Field clinical observations and notes" },
+        "examinerName": { "type": "string", "description": "Name of the VHV examiner" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Record creation timestamp" },
+        "createdBy": { "type": "string", "description": "User UID who conducted checkup" }
+      },
+      "required": ["id", "citizenId", "date"]
+    },
+    "VhvSettings": {
+      "title": "VhvSettings",
+      "description": "VHV profile settings and customized health thresholds",
+      "type": "object",
+      "properties": {
+        "profile": { "type": "object", "description": "VHV profile details" },
+        "thresholds": { "type": "object", "description": "Customizable risk threshold values" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["profile", "thresholds"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles for authenticated VHV workers"
+    },
+    "/citizens/{citizenId}": {
+      "schema": { "$ref": "#/entities/Citizen" },
+      "description": "Residents and citizens in the community database"
+    },
+    "/health_records/{recordId}": {
+      "schema": { "$ref": "#/entities/HealthRecord" },
+      "description": "Field screening records and measured vital signs"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/VhvSettings" },
+      "description": "System settings and health threshold configurations"
+    }
+  }
+}

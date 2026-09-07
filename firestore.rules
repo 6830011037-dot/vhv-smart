@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Test connection check document
+    match /test/connection {
+      allow read, write: if true;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Citizens database
+    match /citizens/{citizenId} {
+      allow read: if true;
+      allow write: if true; // Allow field officers to register and update citizens
+    }
+
+    // Health screening records
+    match /health_records/{recordId} {
+      allow read: if true;
+      allow write: if true; // Allow field officers to save screening data
+    }
+
+    // Settings and thresholds
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}

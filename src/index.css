@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-heading: 'Fraunces', 'Prompt', serif;
+    --font-sans: 'Prompt', 'Nunito', 'Sarabun', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-thai: 'Prompt', 'Sarabun', sans-serif;
+    
+    --bg-main: #FDFCF8;
+    --text-main: #2C2C24;
+    --moss: #5D7052;
+    --moss-dark: #48573F;
+    --terracotta: #C18C5D;
+    --sand: #E6DCCD;
+    --stone: #F0EBE5;
+    --timber: #DED8CF;
+    --bark: #4A4A40;
+    --dried-grass: #78786C;
+    --sienna: #A85448;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, .font-heading {
+    font-family: var(--font-heading);
+  }
+}
+
+/* Organic Blobs & Shadows */
+.shadow-soft {
+  box-shadow: 0 4px 20px -2px rgba(93, 112, 82, 0.12);
+}
+
+.shadow-float {
+  box-shadow: 0 10px 40px -10px rgba(193, 140, 93, 0.18);
+}
+
+.shadow-moss-glow {
+  box-shadow: 0 8px 30px -4px rgba(93, 112, 82, 0.25);
+}
+
+.shadow-card {
+  box-shadow: 0 4px 25px -4px rgba(74, 74, 64, 0.06);
+}
+
+/* Subtle Organic Grain Background Pattern */
+.bg-grain {
+  background-image: radial-gradient(rgba(74, 74, 64, 0.05) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.organic-blob-1 {
+  border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+}
+
+.organic-blob-2 {
+  border-radius: 40% 60% 70% 30% / 40% 40% 60% 60%;
+}
+
+.organic-blob-3 {
+  border-radius: 70% 30% 50% 50% / 30% 60% 40% 70%;
+}
+
+/* Font Size Accessibility Modifier Classes */
+.font-scale-sm {
+  font-size: 0.925rem;
+}
+.font-scale-md {
+  font-size: 1rem;
+}
+.font-scale-lg {
+  font-size: 1.125rem;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F0EBE5;
+}
+::-webkit-scrollbar-thumb {
+  background: #DED8CF;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #5D7052;
+}
+
+/* Print Styles for Official Reports */
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-break-inside-avoid {
+    break-inside: avoid;
+  }
+  .print-page-break {
+    page-break-after: always;
+  }
+  .shadow-soft, .shadow-float, .shadow-card {
+    box-shadow: none !important;
+    border: 1px solid #DED8CF !important;
+  }
+}
