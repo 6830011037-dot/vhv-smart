@@ -8,7 +8,6 @@
 
 BEGIN;
 
--- 1. Create patient_access Table
 CREATE TABLE IF NOT EXISTS public.patient_access (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   citizen_id TEXT NOT NULL REFERENCES public.citizens(id) ON DELETE CASCADE,
@@ -26,87 +25,94 @@ CREATE TABLE IF NOT EXISTS public.patient_access (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Performance & Lookup Indexes
 CREATE INDEX IF NOT EXISTS idx_patient_access_citizen_id ON public.patient_access (citizen_id);
 CREATE INDEX IF NOT EXISTS idx_patient_access_token_hash ON public.patient_access (token_hash);
 CREATE INDEX IF NOT EXISTS idx_patient_access_status ON public.patient_access (status);
 CREATE INDEX IF NOT EXISTS idx_patient_access_expires_at ON public.patient_access (expires_at);
 CREATE INDEX IF NOT EXISTS idx_patient_access_user_id ON public.patient_access (user_id);
 
--- 3. Enable Row Level Security (RLS)
 ALTER TABLE public.patient_access ENABLE ROW LEVEL SECURITY;
 
--- 4. RLS Policies for VHV Authenticated Users
--- A patient_access row is considered owned only when BOTH user_id and
--- citizen_id belong to the authenticated VHV user. This prevents a caller
--- from pairing their own user_id with another user's citizen_id.
 DROP POLICY IF EXISTS "patient_access_select_own" ON public.patient_access;
 CREATE POLICY "patient_access_select_own"
-ON public.patient_access
-FOR SELECT
-TO authenticated
+ON public.patient_access FOR SELECT TO authenticated
 USING (
   auth.uid() = user_id
-  AND EXISTS (
-    SELECT 1
-    FROM public.citizens c
-    WHERE c.id = patient_access.citizen_id
-      AND c.user_id = auth.uid()
-  )
+  AND EXISTS (SELECT 1 FROM public.citizens c WHERE c.id = patient_access.citizen_id AND c.user_id = auth.uid())
 );
 
 DROP POLICY IF EXISTS "patient_access_insert_own" ON public.patient_access;
 CREATE POLICY "patient_access_insert_own"
-ON public.patient_access
-FOR INSERT
-TO authenticated
+ON public.patient_access FOR INSERT TO authenticated
 WITH CHECK (
   auth.uid() = user_id
-  AND EXISTS (
-    SELECT 1
-    FROM public.citizens c
-    WHERE c.id = patient_access.citizen_id
-      AND c.user_id = auth.uid()
-  )
+  AND EXISTS (SELECT 1 FROM public.citizens c WHERE c.id = patient_access.citizen_id AND c.user_id = auth.uid())
 );
 
 DROP POLICY IF EXISTS "patient_access_update_own" ON public.patient_access;
 CREATE POLICY "patient_access_update_own"
-ON public.patient_access
-FOR UPDATE
-TO authenticated
+ON public.patient_access FOR UPDATE TO authenticated
 USING (
   auth.uid() = user_id
-  AND EXISTS (
-    SELECT 1
-    FROM public.citizens c
-    WHERE c.id = patient_access.citizen_id
-      AND c.user_id = auth.uid()
-  )
+  AND EXISTS (SELECT 1 FROM public.citizens c WHERE c.id = patient_access.citizen_id AND c.user_id = auth.uid())
 )
 WITH CHECK (
   auth.uid() = user_id
-  AND EXISTS (
-    SELECT 1
-    FROM public.citizens c
-    WHERE c.id = patient_access.citizen_id
-      AND c.user_id = auth.uid()
-  )
+  AND EXISTS (SELECT 1 FROM public.citizens c WHERE c.id = patient_access.citizen_id AND c.user_id = auth.uid())
 );
 
 DROP POLICY IF EXISTS "patient_access_delete_own" ON public.patient_access;
 CREATE POLICY "patient_access_delete_own"
-ON public.patient_access
-FOR DELETE
-TO authenticated
+ON public.patient_access FOR DELETE TO authenticated
 USING (
   auth.uid() = user_id
-  AND EXISTS (
-    SELECT 1
-    FROM public.citizens c
-    WHERE c.id = patient_access.citizen_id
-      AND c.user_id = auth.uid()
-  )
+  AND EXISTS (SELECT 1 FROM public.citizens c WHERE c.id = patient_access.citizen_id AND c.user_id = auth.uid())
 );
+
+-- Atomic failure counter. This prevents concurrent wrong-PIN requests from
+-- racing each other and bypassing the five-attempt lockout threshold.
+CREATE OR REPLACE FUNCTION public.increment_patient_access_failure(
+  p_access_id UUID,
+  p_lock_minutes INTEGER DEFAULT 15,
+  p_max_attempts INTEGER DEFAULT 5
+)
+RETURNS TABLE(failed_attempts INTEGER, locked_until TIMESTAMPTZ)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_attempts INTEGER;
+  v_locked_until TIMESTAMPTZ;
+BEGIN
+  UPDATE public.patient_access
+  SET failed_attempts = failed_attempts + 1,
+      locked_until = CASE
+        WHEN failed_attempts + 1 >= p_max_attempts
+        THEN NOW() + make_interval(mins => GREATEST(1, p_lock_minutes))
+        ELSE NULL
+      END,
+      updated_at = NOW()
+  WHERE id = p_access_id
+    AND status = 'active'
+    AND (locked_until IS NULL OR locked_until <= NOW())
+  RETURNING patient_access.failed_attempts, patient_access.locked_until
+  INTO v_attempts, v_locked_until;
+
+  IF NOT FOUND THEN
+    SELECT pa.failed_attempts, pa.locked_until
+    INTO v_attempts, v_locked_until
+    FROM public.patient_access pa
+    WHERE pa.id = p_access_id;
+  END IF;
+
+  RETURN QUERY SELECT COALESCE(v_attempts, 0), v_locked_until;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.increment_patient_access_failure(UUID, INTEGER, INTEGER) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.increment_patient_access_failure(UUID, INTEGER, INTEGER) FROM anon;
+REVOKE ALL ON FUNCTION public.increment_patient_access_failure(UUID, INTEGER, INTEGER) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.increment_patient_access_failure(UUID, INTEGER, INTEGER) TO service_role;
 
 COMMIT;
