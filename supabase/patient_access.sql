@@ -37,33 +37,76 @@ CREATE INDEX IF NOT EXISTS idx_patient_access_user_id ON public.patient_access (
 ALTER TABLE public.patient_access ENABLE ROW LEVEL SECURITY;
 
 -- 4. RLS Policies for VHV Authenticated Users
+-- A patient_access row is considered owned only when BOTH user_id and
+-- citizen_id belong to the authenticated VHV user. This prevents a caller
+-- from pairing their own user_id with another user's citizen_id.
 DROP POLICY IF EXISTS "patient_access_select_own" ON public.patient_access;
 CREATE POLICY "patient_access_select_own"
 ON public.patient_access
 FOR SELECT
 TO authenticated
-USING (auth.uid() = user_id);
+USING (
+  auth.uid() = user_id
+  AND EXISTS (
+    SELECT 1
+    FROM public.citizens c
+    WHERE c.id = patient_access.citizen_id
+      AND c.user_id = auth.uid()
+  )
+);
 
 DROP POLICY IF EXISTS "patient_access_insert_own" ON public.patient_access;
 CREATE POLICY "patient_access_insert_own"
 ON public.patient_access
 FOR INSERT
 TO authenticated
-WITH CHECK (auth.uid() = user_id);
+WITH CHECK (
+  auth.uid() = user_id
+  AND EXISTS (
+    SELECT 1
+    FROM public.citizens c
+    WHERE c.id = patient_access.citizen_id
+      AND c.user_id = auth.uid()
+  )
+);
 
 DROP POLICY IF EXISTS "patient_access_update_own" ON public.patient_access;
 CREATE POLICY "patient_access_update_own"
 ON public.patient_access
 FOR UPDATE
 TO authenticated
-USING (auth.uid() = user_id)
-WITH CHECK (auth.uid() = user_id);
+USING (
+  auth.uid() = user_id
+  AND EXISTS (
+    SELECT 1
+    FROM public.citizens c
+    WHERE c.id = patient_access.citizen_id
+      AND c.user_id = auth.uid()
+  )
+)
+WITH CHECK (
+  auth.uid() = user_id
+  AND EXISTS (
+    SELECT 1
+    FROM public.citizens c
+    WHERE c.id = patient_access.citizen_id
+      AND c.user_id = auth.uid()
+  )
+);
 
 DROP POLICY IF EXISTS "patient_access_delete_own" ON public.patient_access;
 CREATE POLICY "patient_access_delete_own"
 ON public.patient_access
 FOR DELETE
 TO authenticated
-USING (auth.uid() = user_id);
+USING (
+  auth.uid() = user_id
+  AND EXISTS (
+    SELECT 1
+    FROM public.citizens c
+    WHERE c.id = patient_access.citizen_id
+      AND c.user_id = auth.uid()
+  )
+);
 
 COMMIT;
