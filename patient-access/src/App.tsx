@@ -8,10 +8,13 @@ type HealthRecord = { id:string; date:string; time?:string; systolic?:number; di
 type StoredSession = { sessionToken:string; expiresAt?:string; sessionExpiresAt?:string };
 
 function getStoredSession(): StoredSession | null { try { const raw=sessionStorage.getItem('vhv_patient_access'); return raw ? JSON.parse(raw) : null; } catch { return null; } }
+function getRememberedToken(): string { try { return localStorage.getItem('vhv_patient_access_token') || ''; } catch { return ''; } }
+function rememberToken(value:string){ try { if(value) localStorage.setItem('vhv_patient_access_token', value); } catch {} }
+function forgetRememberedToken(){ try { localStorage.removeItem('vhv_patient_access_token'); } catch {} }
 
 export default function App(){
  const params=new URLSearchParams(window.location.search);
- const [token,setToken]=useState(params.get('token')||''); const [pin,setPin]=useState(''); const [session,setSession]=useState<StoredSession|null>(getStoredSession());
+ const [token,setToken]=useState(params.get('token')||getRememberedToken()); const [pin,setPin]=useState(''); const [session,setSession]=useState<StoredSession|null>(getStoredSession());
  const [loading,setLoading]=useState(false); const [dataLoading,setDataLoading]=useState(false); const [error,setError]=useState(''); const [view,setView]=useState<View>('home');
  const [patient,setPatient]=useState<Patient|null>(null); const [records,setRecords]=useState<HealthRecord[]>([]); const authenticated=!!session?.sessionToken;
 
@@ -47,12 +50,13 @@ export default function App(){
      const r=await fetch('/api/patient-access/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token.trim(),pin:pin.trim()})});
      const d=await r.json().catch(()=>null);if(!r.ok||!d?.success)throw new Error(d?.error||'ไม่สามารถตรวจสอบสิทธิ์ได้');
      if(!d.sessionToken)throw new Error('ระบบไม่ได้รับเซสชันผู้ป่วยที่ปลอดภัย');
-     const next={sessionToken:d.sessionToken,expiresAt:d.expiresAt,sessionExpiresAt:d.sessionExpiresAt};sessionStorage.setItem('vhv_patient_access',JSON.stringify(next));setSession(next);setPin('');window.history.replaceState({},document.title,window.location.pathname);
+     const next={sessionToken:d.sessionToken,expiresAt:d.expiresAt,sessionExpiresAt:d.sessionExpiresAt};sessionStorage.setItem('vhv_patient_access',JSON.stringify(next));setSession(next);setPin('');rememberToken(token.trim());window.history.replaceState({},document.title,window.location.pathname);
    }catch(x){setError(x instanceof Error?x.message:'ไม่สามารถตรวจสอบสิทธิ์ได้');}finally{setLoading(false);}
  }
- function logout(){sessionStorage.removeItem('vhv_patient_access');setSession(null);setPatient(null);setRecords([]);setPin('');setToken('');setView('home');setError('');}
+ function logout(){sessionStorage.removeItem('vhv_patient_access');setSession(null);setPatient(null);setRecords([]);setPin('');setToken(getRememberedToken());setView('home');setError('');}
+ function clearRememberedAccess(){forgetRememberedToken();setToken('');setPin('');setError('');}
 
- if(!authenticated)return <div className="login-page"><div className="login-card"><div className="brand-mark large"><HeartPulse size={28}/></div><p className="eyebrow">VHV Patient Access</p><h1>เข้าถึงข้อมูลสุขภาพ</h1><p className="login-copy">กรอกรหัส PIN 6 หลักที่ได้รับจากเจ้าหน้าที่ เพื่อดูข้อมูลสุขภาพของคุณ</p><form onSubmit={submit}>{!token&&<label>รหัสเข้าถึง<input value={token} onChange={e=>setToken(e.target.value)} placeholder="วางรหัสเข้าถึง" autoComplete="off"/></label>}<label>PIN 6 หลัก<input value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="••••••" inputMode="numeric" maxLength={6} autoComplete="one-time-code"/></label>{error&&<div className="error">{error}</div>}<button className="primary" disabled={loading}>{loading?'กำลังตรวจสอบ…':'เข้าสู่ข้อมูลสุขภาพ'}</button></form><div className="secure-note"><LockKeyhole size={17}/>การเข้าถึงได้รับการป้องกันและมีวันหมดอายุ</div><div className="privacy"><ShieldCheck size={17}/>อย่าแชร์ PIN หรือ QR ของคุณกับผู้อื่น</div></div></div>;
+ if(!authenticated)return <div className="login-page"><div className="login-card"><div className="brand-mark large"><HeartPulse size={28}/></div><p className="eyebrow">VHV Patient Access</p><h1>เข้าถึงข้อมูลสุขภาพ</h1><p className="login-copy">กรอกรหัส PIN 6 หลักที่ได้รับจากเจ้าหน้าที่ เพื่อดูข้อมูลสุขภาพของคุณ</p>{token&&<div className="remembered-access"><span>✓ รหัสเข้าถึงถูกจำไว้ในอุปกรณ์นี้</span><button type="button" onClick={clearRememberedAccess}>ล้างรหัส</button></div>}<form onSubmit={submit}>{!token&&<label>รหัสเข้าถึง<input value={token} onChange={e=>setToken(e.target.value)} placeholder="วางรหัสเข้าถึง" autoComplete="off"/></label>}<label>PIN 6 หลัก<input value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="••••••" inputMode="numeric" maxLength={6} autoComplete="one-time-code"/></label>{error&&<div className="error">{error}</div>}<button className="primary" disabled={loading}>{loading?'กำลังตรวจสอบ…':'เข้าสู่ข้อมูลสุขภาพ'}</button></form><div className="secure-note"><LockKeyhole size={17}/>การเข้าถึงได้รับการป้องกันและมีวันหมดอายุ</div><div className="privacy"><ShieldCheck size={17}/>อย่าแชร์ PIN หรือ QR ของคุณกับผู้อื่น</div></div></div>;
 
  const latest=records[0]; const displayName=patient?`${patient.prefix||''}${patient.firstName||''} ${patient.lastName||''}`.trim():'ผู้รับบริการ'; const bp=latest?.systolic!=null&&latest?.diastolic!=null?`${latest.systolic}/${latest.diastolic}`:'—';
  return <div className="app"><header className="topbar"><div className="brand"><div className="brand-mark"><HeartPulse size={22}/></div><div><b>VHV Patient Access</b><span>ข้อมูลสุขภาพของฉัน</span></div></div><button className="logout" onClick={logout}>ออกจากระบบ</button></header><main><section className="welcome"><div><p className="eyebrow">พื้นที่ส่วนตัว</p><h1>{view==='home'?'สุขภาพของฉัน':view==='health'?'ประวัติสุขภาพ':'ข้อมูลส่วนตัว'}</h1><p>{displayName}</p></div><div className="privacy"><ShieldCheck size={18}/>ข้อมูลของคุณเป็นส่วนตัว</div></section>
