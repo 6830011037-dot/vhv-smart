@@ -1,4 +1,5 @@
-import { FormEvent, ReactNode, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { Activity, CalendarDays, ChevronRight, HeartPulse, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
 
 type View = 'home' | 'health' | 'profile';

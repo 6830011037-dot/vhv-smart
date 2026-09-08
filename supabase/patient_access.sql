@@ -116,3 +116,34 @@ REVOKE ALL ON FUNCTION public.increment_patient_access_failure(UUID, INTEGER, IN
 GRANT EXECUTE ON FUNCTION public.increment_patient_access_failure(UUID, INTEGER, INTEGER) TO service_role;
 
 COMMIT;
+
+-- Audit trail for Patient Access security events. No raw token/PIN or patient health data is stored.
+CREATE TABLE IF NOT EXISTS public.patient_access_audit (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  access_id UUID REFERENCES public.patient_access(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  event TEXT NOT NULL CHECK (event IN (
+    'access_generated',
+    'verify_invalid_input',
+    'verify_invalid_token',
+    'verify_locked',
+    'verify_inactive_or_expired',
+    'verify_pin_failed',
+    'verify_pin_locked',
+    'verify_success','access_revoked'
+  )),
+  success BOOLEAN NOT NULL DEFAULT FALSE,
+  ip_hash TEXT,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_patient_access_audit_access_id ON public.patient_access_audit(access_id);
+CREATE INDEX IF NOT EXISTS idx_patient_access_audit_user_id ON public.patient_access_audit(user_id);
+CREATE INDEX IF NOT EXISTS idx_patient_access_audit_created_at ON public.patient_access_audit(created_at DESC);
+
+ALTER TABLE public.patient_access_audit ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.patient_access_audit FROM PUBLIC;
+REVOKE ALL ON public.patient_access_audit FROM anon;
+REVOKE ALL ON public.patient_access_audit FROM authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.patient_access_audit TO service_role;
