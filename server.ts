@@ -64,6 +64,9 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    const patientAccessDistPath = path.join(process.cwd(), 'patient-access', 'dist');
+    app.use('/patient-view', express.static(patientAccessDistPath));
+    app.get('/patient-view/*', (req, res) => res.sendFile(path.join(patientAccessDistPath, 'index.html')));
     app.use(express.static(distPath));
     app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
