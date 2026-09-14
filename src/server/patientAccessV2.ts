@@ -19,6 +19,14 @@ function patientSession(req:Request){const h=req.headers.authorization;if(h?.sta
 function mask(v:any){const s=String(v??'');return s.length>=4?'*'.repeat(s.length-4)+s.slice(-4):s?'****':'';}
 function delay(ms:number){return new Promise(resolve=>setTimeout(resolve,ms));}
 function ipHash(v:string){return crypto.createHash('sha256').update(v).digest('hex');}
+function getTrustedPatientAccessOrigin(req:Request){
+  const configured=process.env.PATIENT_ACCESS_URL?.trim();
+  if(configured){
+    try{return new URL(configured).origin.replace(/\/$/,'');}catch{throw new Error('PATIENT_ACCESS_URL is invalid');}
+  }
+  if(isProduction)throw new Error('PATIENT_ACCESS_URL is required in production');
+  return `${req.protocol}://${req.get('host')}`.replace(/\/$/,'');
+}
 
 export function setupPatientAccessRoutesV2(app:any,supabaseServer:SupabaseClient,url:string,publishableKey:string,secretKey?:string){
   const db=secretKey?createClient(url,secretKey,{auth:{autoRefreshToken:false,persistSession:false}}):null;
@@ -34,7 +42,6 @@ export function setupPatientAccessRoutesV2(app:any,supabaseServer:SupabaseClient
     if(!citizenId)return res.status(400).json({success:false,error:'กรุณาระบุประชาชน'});
     const days=[1,7,30].includes(Number(req.body?.expirationDays))?Number(req.body.expirationDays):7;
 
-    // Defense-in-depth: never allow the caller to mint access for another user's citizen.
     const c=userClient(auth.token);
     const {data:citizen,error:citizenError}=await c.from('citizens').select('id').eq('id',citizenId).eq('user_id',auth.user.id).maybeSingle();
     if(citizenError)return res.status(502).json({success:false,error:'ไม่สามารถตรวจสอบข้อมูลประชาชนได้'});
@@ -46,7 +53,7 @@ export function setupPatientAccessRoutesV2(app:any,supabaseServer:SupabaseClient
     if(revokeError)return res.status(502).json({success:false,error:'ไม่สามารถจัดการสิทธิ์เดิมได้'});
     const {error}=await c.from('patient_access').insert(row);if(error)return res.status(502).json({success:false,error:'ไม่สามารถสร้างสิทธิ์เข้าดูข้อมูลได้'});
     for(const x of memory.values())if(x.citizen_id===citizenId&&x.status==='active'){x.status='revoked';x.revoked_at=now.toISOString();}
-    memory.set(id,row);await audit(req,'access_generated',true,id,auth.user.id);const origin=(process.env.PATIENT_ACCESS_URL||req.headers.origin||`${req.protocol}://${req.get('host')}`).replace(/\/$/,'');
+    memory.set(id,row);await audit(req,'access_generated',true,id,auth.user.id);const origin=getTrustedPatientAccessOrigin(req);
     return res.json({success:true,access:{id,citizenId,status:'active',expiresAt:exp.toISOString(),rawToken,pin:rawPin,accessUrl:`${origin}/patient-view?token=${rawToken}`,savedToDatabase:true}});
   }catch(e){console.error(e);return res.status(500).json({success:false,error:'เกิดข้อผิดพลาดภายในระบบ'});}});
 
@@ -88,7 +95,6 @@ export function setupPatientAccessRoutesV2(app:any,supabaseServer:SupabaseClient
     if(r.locked_until&&+new Date(r.locked_until)>Date.now()){await audit(req,'verify_locked',false,r.id,r.user_id);return res.status(429).json({success:false,error:'ระงับการเข้าถึงชั่วคราว กรุณารอ 15 นาที'});}
     if(r.status!=='active'||+new Date(r.expires_at)<=Date.now()){await audit(req,'verify_inactive_or_expired',false,r.id,r.user_id);return res.status(403).json({success:false,error:'สิทธิ์หมดอายุหรือถูกยกเลิกแล้ว'});}
     if(!checkPin(supplied,r.pin_salt,r.pin_hash)){
-      // Atomic increment prevents concurrent requests from bypassing the five-attempt lock.
       const {data:updated,error:updateError}=await db!.rpc('increment_patient_access_failure',{p_access_id:r.id,p_lock_minutes:15,p_max_attempts:5});
       if(updateError){console.error(updateError);return res.status(503).json({success:false,error:'ไม่สามารถบันทึกความพยายามเข้าสู่ระบบได้'});}
       const attempts=Number(updated?.[0]?.failed_attempts??updated?.failed_attempts??(r.failed_attempts||0)+1);const locked=Boolean(updated?.[0]?.locked_until??updated?.locked_until);
@@ -100,28 +106,17 @@ export function setupPatientAccessRoutesV2(app:any,supabaseServer:SupabaseClient
     await audit(req,'verify_success',true,r.id,r.user_id);
     const exp=Date.now()+SESSION_TTL;const sessionToken=sign({accessId:r.id,citizenId:r.citizen_id,userId:r.user_id,exp});
     return res.json({success:true,sessionToken,expiresAt:r.expires_at,sessionExpiresAt:new Date(exp).toISOString()});
-  }catch(e){console.error(e);return res.status(500).json({success:false,error:'เกิดข้อผิดพลาดในการตรวจสอบสิทธิ์'});}});
-
-  async function load(req:Request){
-    const s=patientSession(req);if(!s)return {error:'เซสชันผู้ป่วยไม่ถูกต้องหรือหมดอายุ',status:401 as const};
-    if(!db||!secret)return {error:'ระบบผู้ป่วยยังไม่ได้ตั้งค่าเซิร์ฟเวอร์อย่างสมบูรณ์',status:503 as const};
-    const {data:a,error}=await db.from('patient_access').select('id,citizen_id,user_id,status,expires_at,revoked_at').eq('id',s.accessId).eq('citizen_id',s.citizenId).eq('user_id',s.userId).maybeSingle();
-    if(error)return {error:'ไม่สามารถตรวจสอบสิทธิ์ผู้ป่วยได้',status:503 as const};
-    if(!a||a.status!=='active'||+new Date(a.expires_at)<=Date.now())return {error:'สิทธิ์เข้าถึงหมดอายุหรือถูกยกเลิกแล้ว',status:403 as const};
-    return {s,a};
-  }
+  }catch(e){console.error(e);return res.status(500).json({success:false,error:'เกิดข้อผิดพลาดภายในระบบ'});}});
 
   app.get('/api/patient-access/me',async(req:Request,res:Response)=>{try{
-    const a=await load(req);if('error'in a)return res.status(a.status).json({success:false,error:a.error});
-    const {data,error}=await db!.from('citizens').select('id,prefix,first_name,last_name,birth_date,gender,age,phone,citizen_id').eq('id',a.a.citizen_id).eq('user_id',a.a.user_id).maybeSingle();
-    if(error)return res.status(502).json({success:false,error:'ไม่สามารถอ่านข้อมูลผู้รับบริการได้'});if(!data)return res.status(404).json({success:false,error:'ไม่พบข้อมูลผู้รับบริการ'});
-    return res.json({success:true,patient:{prefix:data.prefix,firstName:data.first_name,lastName:data.last_name,birthDate:data.birth_date,gender:data.gender,age:data.age,phone:mask(data.phone),idCard:mask(data.citizen_id)}});
-  }catch(e){console.error(e);return res.status(500).json({success:false,error:'เกิดข้อผิดพลาดในการอ่านข้อมูลผู้รับบริการ'});}});
-
-  app.get('/api/patient-access/health-records',async(req:Request,res:Response)=>{try{
-    const a=await load(req);if('error'in a)return res.status(a.status).json({success:false,error:a.error});
-    const {data,error}=await db!.from('health_records').select('id,date,sys,dia,pulse,weight,height,bmi,waist,fbs,is_fasting,temperature,assessment,notes,examiner_name,created_at').eq('citizen_id',a.a.citizen_id).eq('user_id',a.a.user_id).order('date',{ascending:false}).limit(100);
-    if(error)return res.status(502).json({success:false,error:'ไม่สามารถอ่านประวัติสุขภาพได้'});
-    return res.json({success:true,records:(data||[]).map((r:any)=>({id:r.id,date:r.date,systolic:r.sys,diastolic:r.dia,pulse:r.pulse,weight:r.weight,height:r.height,bmi:r.bmi,waist:r.waist,bloodSugar:r.fbs,bloodSugarFasting:r.is_fasting,temperature:r.temperature,assessment:r.assessment,notes:r.notes,examinerName:r.examiner_name,createdAt:r.created_at}))});
-  }catch(e){console.error(e);return res.status(500).json({success:false,error:'เกิดข้อผิดพลาดในการอ่านประวัติสุขภาพ'});}});
+    if(!serverReady)return res.status(503).json({success:false,error:'ระบบ Patient Access ยังไม่ได้ตั้งค่าความปลอดภัยของเซิร์ฟเวอร์'});
+    const session=patientSession(req);if(!session)return res.status(401).json({success:false,error:'เซสชันไม่ถูกต้องหรือหมดอายุ'});
+    const {data:access,error}=await db!.from('patient_access').select('id,citizen_id,user_id,status,expires_at').eq('id',session.accessId).eq('citizen_id',session.citizenId).eq('user_id',session.userId).maybeSingle();
+    if(error||!access||access.status!=='active'||+new Date(access.expires_at)<=Date.now())return res.status(403).json({success:false,error:'สิทธิ์เข้าดูผลตรวจหมดอายุหรือถูกยกเลิกแล้ว'});
+    const {data:citizen,error:citizenError}=await db!.from('citizens').select('*').eq('id',access.citizen_id).maybeSingle();
+    if(citizenError||!citizen)return res.status(404).json({success:false,error:'ไม่พบข้อมูลประชาชน'});
+    const {data:records,error:recordsError}=await db!.from('health_records').select('*').eq('citizen_id',access.citizen_id).order('created_at',{ascending:false});
+    if(recordsError)return res.status(502).json({success:false,error:'ไม่สามารถอ่านผลตรวจสุขภาพได้'});
+    return res.json({success:true,citizen:{id:citizen.id,citizen_id:citizen.citizen_id,first_name:citizen.first_name,last_name:citizen.last_name,birth_date:citizen.birth_date,gender:citizen.gender,blood_type:citizen.blood_type,congenital_disease:citizen.congenital_disease,note:citizen.note},records});
+  }catch(e){console.error(e);return res.status(500).json({success:false,error:'เกิดข้อผิดพลาดในการอ่านผลตรวจ'});}});
 }
