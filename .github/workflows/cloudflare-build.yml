@@ -17,4 +17,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:cloudflare
-      - run: npx --yes wrangler@4.44.0 deploy --dry-run
+      - run: npx --yes wrangler@4.131.2 deploy --dry-run
