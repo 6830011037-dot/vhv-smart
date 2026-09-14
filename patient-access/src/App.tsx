@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Activity, CalendarDays, ChevronRight, HeartPulse, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
 
 type View = 'home' | 'health' | 'profile';
@@ -11,6 +10,14 @@ function getStoredSession(): StoredSession | null { try { const raw=sessionStora
 function getRememberedToken(): string { try { return localStorage.getItem('vhv_patient_access_token') || ''; } catch { return ''; } }
 function rememberToken(value:string){ try { if(value) localStorage.setItem('vhv_patient_access_token', value); } catch {} }
 function forgetRememberedToken(){ try { localStorage.removeItem('vhv_patient_access_token'); } catch {} }
+
+function mapPatient(c:any): Patient | null {
+ if(!c) return null;
+ return { prefix:c.prefix, firstName:c.first_name??c.firstName, lastName:c.last_name??c.lastName, birthDate:c.birth_date??c.birthDate, gender:c.gender, age:c.age, phone:c.phone, idCard:c.citizen_id??c.id_card??c.idCard, healthRight:c.health_right??c.healthRight };
+}
+function mapRecord(r:any): HealthRecord {
+ return { id:String(r.id), date:r.date??r.exam_date??r.created_at?.slice?.(0,10)??'', time:r.time, systolic:r.systolic, diastolic:r.diastolic, pulse:r.pulse, weight:r.weight, bloodSugar:r.blood_sugar??r.bloodSugar, notes:r.notes??r.note };
+}
 
 export default function App(){
  const params=new URLSearchParams(window.location.search);
@@ -26,22 +33,20 @@ export default function App(){
      try{
        if(session?.sessionExpiresAt && Date.parse(session.sessionExpiresAt)<=Date.now()) throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
        const headers={Authorization:`Patient ${session!.sessionToken}`};
-       const [meRes,recordsRes]=await Promise.all([fetch('/api/patient-access/me',{headers}),fetch('/api/patient-access/health-records',{headers})]);
-       const me=await meRes.json().catch(()=>null); const hr=await recordsRes.json().catch(()=>null);
-       if(meRes.status===401||meRes.status===403||recordsRes.status===401||recordsRes.status===403){
+       const meRes=await fetch('/api/patient-access/me',{headers});
+       const me=await meRes.json().catch(()=>null);
+       if(meRes.status===401||meRes.status===403){
          sessionStorage.removeItem('vhv_patient_access');
          if(!cancelled){setSession(null);setPatient(null);setRecords([]);setPin('');setToken('');setView('home');setError('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');}
          return;
        }
        if(!meRes.ok||!me?.success)throw new Error(me?.error||'ไม่สามารถโหลดข้อมูลผู้รับบริการได้');
-       if(!recordsRes.ok||!hr?.success)throw new Error(hr?.error||'ไม่สามารถโหลดประวัติสุขภาพได้');
-       if(!cancelled){setPatient(me.patient||null);setRecords(Array.isArray(hr.records)?hr.records:[]);}
+       if(!cancelled){setPatient(mapPatient(me.citizen||me.patient));setRecords(Array.isArray(me.records)?me.records.map(mapRecord):[]);}
      }catch(e){if(!cancelled)setError(e instanceof Error?e.message:'ไม่สามารถโหลดข้อมูลได้');}
      finally{if(!cancelled)setDataLoading(false);}
    }
    load();return()=>{cancelled=true};
  },[session?.sessionToken]);
-
  async function submit(e:FormEvent){
    e.preventDefault();setError('');
    if(!token.trim()||!/^[0-9]{6}$/.test(pin)){setError('กรุณากรอกรหัสเข้าถึงและ PIN 6 หลัก');return;}
@@ -63,7 +68,8 @@ export default function App(){
  {dataLoading&&<div className="secure-note">กำลังโหลดข้อมูลสุขภาพจากระบบ…</div>}{error&&authenticated&&<div className="error">{error}</div>}
  {view==='home'&&<><div className="cards"><Metric icon={<HeartPulse/>} label="ความดันล่าสุด" value={bp} unit="mmHg"/><Metric icon={<Activity/>} label="ชีพจร" value={latest?.pulse??'—'} unit="ครั้ง/นาที"/><Metric icon={<Activity/>} label="น้ำหนัก" value={latest?.weight??'—'} unit="กก."/><Metric icon={<Activity/>} label="น้ำตาล" value={latest?.bloodSugar??'—'} unit="mg/dL"/></div><div className="grid-2"><Panel title="การตรวจสุขภาพล่าสุด" icon={<CalendarDays/>}>{latest?<><div className="record-highlight"><div><span>วันที่ตรวจ</span><strong>{latest.date}</strong></div><div className="status">บันทึกแล้ว</div></div><Row label="ความดันโลหิต" value={`${bp} mmHg`}/><Row label="ชีพจร" value={`${latest.pulse??'—'} ครั้ง/นาที`}/><Row label="น้ำหนัก" value={`${latest.weight??'—'} กก.`}/><button className="link-btn" onClick={()=>setView('health')}>ดูประวัติทั้งหมด <ChevronRight size={17}/></button></>:<div className="empty">ยังไม่มีประวัติการตรวจสุขภาพ</div>}</Panel><Panel title="ข้อมูลส่วนตัว" icon={<UserRound/>}><Row label="ชื่อ-นามสกุล" value={displayName}/><Row label="วันเกิด" value={patient?.birthDate||'—'}/><Row label="สิทธิการรักษา" value={patient?.healthRight||'—'}/><button className="link-btn" onClick={()=>setView('profile')}>ดูข้อมูลส่วนตัว <ChevronRight size={17}/></button></Panel></div></>}
  {view==='health'&&<Panel title="ประวัติการตรวจสุขภาพ" icon={<Activity/>}>{records.length?<div className="table-wrap"><table><thead><tr><th>วันที่</th><th>ความดัน</th><th>ชีพจร</th><th>น้ำหนัก</th><th>น้ำตาล</th></tr></thead><tbody>{records.map(r=><tr key={r.id}><td>{r.date}</td><td>{r.systolic!=null&&r.diastolic!=null?`${r.systolic}/${r.diastolic}`:'—'}</td><td>{r.pulse??'—'}</td><td>{r.weight??'—'}</td><td>{r.bloodSugar??'—'}</td></tr>)}</tbody></table></div>:<div className="empty">ยังไม่มีประวัติการตรวจสุขภาพ</div>}</Panel>}
- {view==='profile'&&<Panel title="ข้อมูลส่วนตัว" icon={<UserRound/>}><div className="profile-grid"><Info label="ชื่อ-นามสกุล" value={displayName}/><Info label="วันเกิด" value={patient?.birthDate||'—'}/><Info label="เบอร์โทรศัพท์" value={patient?.phone||'—'}/><Info label="เลขประจำตัว" value={patient?.idCard||'—'}/><Info label="เพศ" value={patient?.gender||'—'}/><Info label="สิทธิการรักษา" value={patient?.healthRight||'—'}/></div><div className="notice"><ShieldCheck size={19}/>ข้อมูลระบุตัวตนบางส่วนถูกซ่อนเพื่อความเป็นส่วนตัว</div></Panel>}</main><nav className="bottom-nav"><button className={view==='home'?'active':''} onClick={()=>setView('home')}><HeartPulse/>หน้าหลัก</button><button className={view==='health'?'active':''} onClick={()=>setView('health')}><Activity/>ประวัติสุขภาพ</button><button className={view==='profile'?'active':''} onClick={()=>setView('profile')}><UserRound/>ฉัน</button></nav></div>;
+ {view==='profile'&&<Panel title="ข้อมูลส่วนตัว" icon={<UserRound/>}><div className="profile-grid"><Info label="ชื่อ-นามสกุล" value={displayName}/><Info label="วันเกิด" value={patient?.birthDate||'—'}/><Info label="เบอร์โทรศัพท์" value={patient?.phone||'—'}/><Info label="เลขประจำตัว" value={patient?.idCard||'—'}/><Info label="เพศ" value={patient?.gender||'—'}/><Info label="สิทธิการรักษา" value={patient?.healthRight||'—'}/></div><div className="notice"><ShieldCheck size={19}/>ข้อมูลระบุตัวตนบางส่วนถูกซ่อนเพื่อความเป็นส่วนตัว</div></Panel>}
+ </main><nav className="bottom-nav"><button className={view==='home'?'active':''} onClick={()=>setView('home')}><HeartPulse/>หน้าหลัก</button><button className={view==='health'?'active':''} onClick={()=>setView('health')}><Activity/>ประวัติสุขภาพ</button><button className={view==='profile'?'active':''} onClick={()=>setView('profile')}><UserRound/>ฉัน</button></nav></div>;
 }
 function Metric({icon,label,value,unit}:{icon:ReactNode;label:string;value:string|number;unit:string}){return <div className="metric"><div className="metric-icon">{icon}</div><span>{label}</span><strong>{value}</strong><small>{unit}</small></div>}
 function Panel({title,icon,children}:{title:string;icon:ReactNode;children:ReactNode}){return <section className="panel"><div className="panel-head"><div className="panel-title">{icon}<h2>{title}</h2></div></div>{children}</section>}
