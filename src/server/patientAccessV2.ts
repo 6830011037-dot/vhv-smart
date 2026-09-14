@@ -6,7 +6,6 @@ const TRIVIAL_PINS = new Set(['000000','111111','222222','333333','444444','5555
 const SESSION_TTL = 30 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === 'production';
 const secret = process.env.PATIENT_ACCESS_SESSION_SECRET || (isProduction ? '' : crypto.randomBytes(32).toString('hex'));
-const memory = new Map<string, any>();
 
 function pin(){for(let i=0;i<100;i++){const p=crypto.randomInt(100000,1000000).toString();if(!TRIVIAL_PINS.has(p))return p;}return crypto.randomInt(100000,1000000).toString();}
 function token(){return crypto.randomBytes(32).toString('base64url');}
@@ -52,8 +51,7 @@ export function setupPatientAccessRoutesV2(app:any,supabaseServer:SupabaseClient
     const {error:revokeError}=await c.from('patient_access').update({status:'revoked',revoked_at:now.toISOString(),updated_at:now.toISOString()}).eq('citizen_id',citizenId).eq('status','active');
     if(revokeError)return res.status(502).json({success:false,error:'ไม่สามารถจัดการสิทธิ์เดิมได้'});
     const {error}=await c.from('patient_access').insert(row);if(error)return res.status(502).json({success:false,error:'ไม่สามารถสร้างสิทธิ์เข้าดูข้อมูลได้'});
-    for(const x of memory.values())if(x.citizen_id===citizenId&&x.status==='active'){x.status='revoked';x.revoked_at=now.toISOString();}
-    memory.set(id,row);await audit(req,'access_generated',true,id,auth.user.id);const origin=getTrustedPatientAccessOrigin(req);
+    await audit(req,'access_generated',true,id,auth.user.id);const origin=getTrustedPatientAccessOrigin(req);
     return res.json({success:true,access:{id,citizenId,status:'active',expiresAt:exp.toISOString(),rawToken,pin:rawPin,accessUrl:`${origin}/patient-view?token=${rawToken}`,savedToDatabase:true}});
   }catch(e){console.error(e);return res.status(500).json({success:false,error:'เกิดข้อผิดพลาดภายในระบบ'});}});
 
@@ -80,7 +78,6 @@ export function setupPatientAccessRoutesV2(app:any,supabaseServer:SupabaseClient
     const {data,error}=await q.select('id,citizen_id').maybeSingle();
     if(error)return res.status(502).json({success:false,error:'ไม่สามารถยกเลิกสิทธิ์ได้'});
     if(!data)return res.status(404).json({success:false,error:'ไม่พบสิทธิ์ที่ต้องการยกเลิก'});
-    for(const x of memory.values())if(x.id===data.id){x.status='revoked';x.revoked_at=new Date().toISOString();}
     await audit(req,'access_revoked',true,data.id,auth.user.id);
     return res.json({success:true,message:'ยกเลิกสิทธิ์เข้าดูผลตรวจเรียบร้อยแล้ว'});
   }catch(e){console.error(e);return res.status(500).json({success:false,error:'เกิดข้อผิดพลาดในการยกเลิกสิทธิ์'});}});
