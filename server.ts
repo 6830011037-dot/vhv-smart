@@ -85,13 +85,3 @@ export async function createApp(options: AppOptions = {}): Promise<Express> {
 
   return app;
 }
-
-if (process.env.CLOUDFLARE_WORKER !== 'true') {
-  createApp().then((app) => {
-    const PORT = Number(process.env.PORT) || 3000;
-    app.listen(PORT, '0.0.0.0', () => console.log(`Server running on http://localhost:${PORT}`));
-  }).catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
-}
