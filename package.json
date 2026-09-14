@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx start-node.ts",
     "build": "npm run build:patient && vite build && esbuild start-node.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build:patient": "npm --prefix patient-access ci && npm --prefix patient-access run build",
     "build:cloudflare": "npm run build:patient && vite build && node scripts/prepare-cloudflare.mjs",
     "dev:cloudflare": "npm run build:cloudflare && npx --yes wrangler@4.44.0 dev",
     "deploy": "npm run build:cloudflare && npx --yes wrangler@4.44.0 deploy",
