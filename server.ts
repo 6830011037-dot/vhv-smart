@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import express, { type Express } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
