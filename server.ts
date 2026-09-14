@@ -1,6 +1,4 @@
 import express, { type Express } from 'express';
-import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import * as XLSX from 'xlsx';
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
@@ -17,7 +15,7 @@ type AppOptions = {
   cloudflare?: boolean;
 };
 
-export async function createApp(options: AppOptions = {}): Promise<Express> {
+export function createApp(options: AppOptions = {}): Express {
   const cloudflare = options.cloudflare === true;
   const app = express();
   app.use(express.json({ limit: '15mb' }));
@@ -67,20 +65,6 @@ export async function createApp(options: AppOptions = {}): Promise<Express> {
 
   setupPatientAccessRoutesV2(app, supabaseServer, supabaseUrl, supabasePublishableKey, supabaseSecretKey || undefined);
   if (process.env.NODE_ENV === 'production' && !supabaseSecretKey) throw new Error('SUPABASE_SECRET_KEY is required in production for patient access');
-
-  if (!cloudflare) {
-    if (process.env.NODE_ENV !== 'production') {
-      const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
-      app.use(vite.middlewares);
-    } else {
-      const distPath = path.join(process.cwd(), 'dist');
-      const patientAccessDistPath = path.join(process.cwd(), 'patient-access', 'dist');
-      app.use('/patient-view', express.static(patientAccessDistPath));
-      app.get('/patient-view/*', (_req, res) => res.sendFile(path.join(patientAccessDistPath, 'index.html')));
-      app.use(express.static(distPath));
-      app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
-    }
-  }
 
   return app;
 }
