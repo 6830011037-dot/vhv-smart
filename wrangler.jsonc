@@ -11,7 +11,8 @@
   },
   "vars": {
     "SUPABASE_URL": "https://ctllgomqzeweeyrvxboc.supabase.co",
-    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_P91Ii_-0k1YPlbsGqpFamA_Y8NBqhpr"
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_P91Ii_-0k1YPlbsGqpFamA_Y8NBqhpr",
+    "PATIENT_ACCESS_URL": "https://vhv-smart.nutjukka.workers.dev"
   },
   "secrets": {
     "required": [

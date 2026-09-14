@@ -1,4 +1,4 @@
-import express, { type Express } from 'express';
+import express, { type Express, type RequestHandler } from 'express';
 import * as XLSX from 'xlsx';
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
@@ -13,12 +13,46 @@ const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-
 
 type AppOptions = {
   cloudflare?: boolean;
+  jsonParser?: RequestHandler;
 };
 
-export function createApp(options: AppOptions = {}): Express {
+export async function createApp(options: AppOptions = {}): Promise<Express> {
   const cloudflare = options.cloudflare === true;
   const app = express();
-  app.use(express.json({ limit: '15mb' }));
+  if (!cloudflare && options.jsonParser) {
+    app.use(options.jsonParser);
+  } else if (cloudflare) {
+    app.use(async (req, res, next) => {
+      if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+      const contentType = String(req.headers['content-type'] || '').toLowerCase();
+      if (!contentType.includes('application/json')) return next();
+      try {
+        const chunks: Buffer[] = [];
+        let total = 0;
+        await new Promise<void>((resolve, reject) => {
+          req.on('data', (chunk: Buffer | string) => {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            total += buffer.length;
+            if (total > 15 * 1024 * 1024) {
+              reject(new Error('request body too large'));
+              return;
+            }
+            chunks.push(buffer);
+          });
+          req.on('end', resolve);
+          req.on('error', reject);
+        });
+        const raw = Buffer.concat(chunks).toString('utf8');
+        req.body = raw ? JSON.parse(raw) : {};
+        next();
+      } catch (error) {
+        if (error instanceof Error && error.message === 'request body too large') {
+          return res.status(413).json({ success: false, error: 'Request body too large' });
+        }
+        return res.status(400).json({ success: false, error: 'Invalid JSON body' });
+      }
+    });
+  }
 
   app.get('/api/health', (_req, res) => {
     res.json({ success: true, service: 'VHV Smart Health', runtime: cloudflare ? 'cloudflare-workers' : 'node' });

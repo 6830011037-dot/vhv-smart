@@ -1,11 +1,12 @@
 import 'dotenv/config';
 import path from 'node:path';
 import express from 'express';
+import bodyParser from 'body-parser';
 import { createServer as createViteServer } from 'vite';
 import { createApp } from './server';
 
 async function start() {
-  const app = createApp();
+  const app = await createApp({ jsonParser: bodyParser.json({ limit: '15mb' }) });
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
