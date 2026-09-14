@@ -1,7 +1,4 @@
-import 'dotenv/config';
-import express from 'express';
-import path from 'path';
-import { createServer as createViteServer } from 'vite';
+import express, { type Express, type RequestHandler } from 'express';
 import * as XLSX from 'xlsx';
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
@@ -14,10 +11,52 @@ const supabaseServer = createClient(supabaseUrl, supabasePublishableKey);
 
 const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
 
-async function startServer() {
+type AppOptions = {
+  cloudflare?: boolean;
+  jsonParser?: RequestHandler;
+};
+
+export async function createApp(options: AppOptions = {}): Promise<Express> {
+  const cloudflare = options.cloudflare === true;
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
-  app.use(express.json({ limit: '15mb' }));
+  if (!cloudflare && options.jsonParser) {
+    app.use(options.jsonParser);
+  } else if (cloudflare) {
+    app.use(async (req, res, next) => {
+      if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+      const contentType = String(req.headers['content-type'] || '').toLowerCase();
+      if (!contentType.includes('application/json')) return next();
+      try {
+        const chunks: Buffer[] = [];
+        let total = 0;
+        await new Promise<void>((resolve, reject) => {
+          req.on('data', (chunk: Buffer | string) => {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            total += buffer.length;
+            if (total > 15 * 1024 * 1024) {
+              reject(new Error('request body too large'));
+              return;
+            }
+            chunks.push(buffer);
+          });
+          req.on('end', resolve);
+          req.on('error', reject);
+        });
+        const raw = Buffer.concat(chunks).toString('utf8');
+        req.body = raw ? JSON.parse(raw) : {};
+        next();
+      } catch (error) {
+        if (error instanceof Error && error.message === 'request body too large') {
+          return res.status(413).json({ success: false, error: 'Request body too large' });
+        }
+        return res.status(400).json({ success: false, error: 'Invalid JSON body' });
+      }
+    });
+  }
+
+  app.get('/api/health', (_req, res) => {
+    res.json({ success: true, service: 'VHV Smart Health', runtime: cloudflare ? 'cloudflare-workers' : 'node' });
+  });
 
   app.post('/api/send-email', async (req, res) => {
     try {
@@ -29,6 +68,7 @@ async function startServer() {
       if (authError || !user) return res.status(401).json({ success: false, error: 'ไม่ได้รับอนุญาต: เซสชันหมดอายุหรือไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง' });
 
       const { recipientEmail, recipientName = 'เจ้าหน้าที่ รพ.สต. / ผู้รับรายงาน', subject = 'รายงานข้อมูลดิบผลการตรวจสุขภาพภาคสนาม อสม.', records = [], vhvProfile = {}, fileName = 'ค่าวัดสุขภาพ_อสม_ผลตรวจดิบ', customNote = '' } = req.body;
+      void vhvProfile;
       if (!recipientEmail || typeof recipientEmail !== 'string' || !EMAIL_REGEX.test(recipientEmail.trim())) return res.status(400).json({ success: false, error: 'กรุณาระบุที่อยู่อีเมลผู้รับที่ถูกต้องตามรูปแบบ (เช่น example@hospital.go.th)' });
       if (!Array.isArray(records) || records.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการข้อมูลผลการตรวจสุขภาพสำหรับส่งออก' });
       if (records.length > 5000) return res.status(400).json({ success: false, error: 'จำนวนรายการเกินขีดจำกัดสูงสุด (5,000 รายการต่อครั้ง)' });
@@ -59,17 +99,6 @@ async function startServer() {
 
   setupPatientAccessRoutesV2(app, supabaseServer, supabaseUrl, supabasePublishableKey, supabaseSecretKey || undefined);
   if (process.env.NODE_ENV === 'production' && !supabaseSecretKey) throw new Error('SUPABASE_SECRET_KEY is required in production for patient access');
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    const patientAccessDistPath = path.join(process.cwd(), 'patient-access', 'dist');
-    app.use('/patient-view', express.static(patientAccessDistPath));
-    app.get('/patient-view/*', (req, res) => res.sendFile(path.join(patientAccessDistPath, 'index.html')));
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
-  }
-  app.listen(PORT, '0.0.0.0', () => console.log(`Server running on http://localhost:${PORT}`));
+
+  return app;
 }
-startServer();
